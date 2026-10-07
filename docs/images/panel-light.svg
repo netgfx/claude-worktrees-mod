@@ -28,7 +28,7 @@
 <line x1="830" y1="36" x2="830" y2="900" stroke="#d0d7de"/>
 <rect x="830" y="36" width="610" height="30" fill="#eaeef2"/>
 <text x="846" y="56" font-size="13" xml:space="preserve"><tspan fill="#1f2328" font-weight="bold">Worktrees</tspan><tspan fill="#656d76">   esc to close</tspan></text>
-<text x="848" y="92" font-size="14" xml:space="preserve"><tspan fill="#1f2328" font-weight="bold">⎇ shop-app</tspan><tspan fill="#656d76"> · 4 worktrees · 2 serving</tspan></text>
+<text x="848" y="92" font-size="14" xml:space="preserve"><tspan fill="#1f2328" font-weight="bold">⎇ shop-app</tspan><tspan fill="#656d76"> · 4 worktrees · 2 dev servers up</tspan></text>
 <text x="848" y="112" font-size="14" xml:space="preserve"><tspan fill="#656d76">this session: </tspan><tspan fill="#FFB74D" font-weight="bold">● oauth-login :4110</tspan></text>
 <rect x="848" y="129" width="150.4" height="21" rx="4" fill="#1f6feb" stroke="#388bfd"/>
 <text x="856" y="144" font-size="14" xml:space="preserve"><tspan fill="#ffffff">New worktree (n)</tspan></text>
@@ -40,7 +40,7 @@
 <text x="1348" y="202" font-size="14" xml:space="preserve"><tspan fill="#1f2328">Switch</tspan></text>
 <text x="854" y="222" font-size="14" xml:space="preserve"><tspan fill="#0969da">main</tspan><tspan fill="#656d76">  ↑0</tspan><tspan fill="#656d76"> ↓0</tspan><tspan fill="#1a7f37">  ✓ clean</tspan><tspan fill="#656d76">  · 2 hours ago</tspan></text>
 <text x="854" y="242" font-size="14" xml:space="preserve"><tspan fill="#1f2328" font-style="italic">Release prep for v2.4</tspan></text>
-<text x="854" y="262" font-size="14" xml:space="preserve"><tspan fill="#656d76">ports 4100-4109  </tspan><tspan fill="#1a7f37" text-decoration="underline">● :4100</tspan><tspan fill="#656d76">  </tspan></text>
+<text x="854" y="262" font-size="14" xml:space="preserve"><tspan fill="#656d76">ports 4100-4109  </tspan><tspan fill="#1a7f37">dev server </tspan><tspan fill="#1a7f37" text-decoration="underline">● :4100</tspan><tspan fill="#656d76">  </tspan></text>
 <text x="854" y="282" font-size="14" xml:space="preserve"><tspan fill="#656d76">shop-app</tspan></text>
 <text x="854" y="302" font-size="14" xml:space="preserve"><tspan fill="#1f2328" text-decoration="underline">Terminal</tspan></text>
 <text x="935.2" y="302" font-size="14" xml:space="preserve"><tspan fill="#1f2328" text-decoration="underline">Editor</tspan></text>
@@ -52,7 +52,7 @@
 <text x="1282" y="358" font-size="14" xml:space="preserve"><tspan fill="#FFB74D" font-weight="bold">◆ this session</tspan></text>
 <text x="854" y="378" font-size="14" xml:space="preserve"><tspan fill="#0969da">feat/oauth-login</tspan><tspan fill="#1a7f37">  ↑3</tspan><tspan fill="#656d76"> ↓0</tspan><tspan fill="#9a6700">  ~5 changed</tspan><tspan fill="#656d76">  · 4 minutes ago</tspan></text>
 <text x="854" y="398" font-size="14" xml:space="preserve"><tspan fill="#1f2328" font-style="italic">Add OAuth login to the settings page</tspan></text>
-<text x="854" y="418" font-size="14" xml:space="preserve"><tspan fill="#656d76">ports 4110-4119  </tspan><tspan fill="#1a7f37" text-decoration="underline">● :4110</tspan><tspan fill="#656d76">  </tspan><tspan fill="#1a7f37" text-decoration="underline">● :4111</tspan><tspan fill="#656d76">  </tspan></text>
+<text x="854" y="418" font-size="14" xml:space="preserve"><tspan fill="#656d76">ports 4110-4119  </tspan><tspan fill="#1a7f37">dev server </tspan><tspan fill="#1a7f37" text-decoration="underline">● :4110</tspan><tspan fill="#656d76">  </tspan><tspan fill="#1a7f37" text-decoration="underline">● :4111</tspan><tspan fill="#656d76">  </tspan></text>
 <text x="854" y="438" font-size="14" xml:space="preserve"><tspan fill="#656d76">shop-app.worktrees/oauth-login</tspan></text>
 <text x="854" y="458" font-size="14" xml:space="preserve"><tspan fill="#1f2328" text-decoration="underline">Terminal</tspan></text>
 <text x="935.2" y="458" font-size="14" xml:space="preserve"><tspan fill="#1f2328" text-decoration="underline">Editor</tspan></text>
@@ -65,7 +65,7 @@
 <text x="1348" y="514" font-size="14" xml:space="preserve"><tspan fill="#1f2328">Switch</tspan></text>
 <text x="854" y="534" font-size="14" xml:space="preserve"><tspan fill="#0969da">fix/checkout-total</tspan><tspan fill="#9a6700">  ~2 changed</tspan><tspan fill="#656d76">  · 1 hour ago</tspan></text>
 <text x="854" y="554" font-size="14" xml:space="preserve"><tspan fill="#1f2328" font-style="italic">Fix rounding in the checkout total</tspan></text>
-<text x="854" y="574" font-size="14" xml:space="preserve"><tspan fill="#656d76">ports 4120-4129  </tspan><tspan fill="#656d76">○ idle</tspan></text>
+<text x="854" y="574" font-size="14" xml:space="preserve"><tspan fill="#656d76">ports 4120-4129  </tspan><tspan fill="#656d76">○ no dev server</tspan></text>
 <text x="854" y="594" font-size="14" xml:space="preserve"><tspan fill="#656d76">shop-app.worktrees/checkout-bug</tspan></text>
 <text x="854" y="614" font-size="14" xml:space="preserve"><tspan fill="#1f2328" text-decoration="underline">Terminal</tspan></text>
 <text x="935.2" y="614" font-size="14" xml:space="preserve"><tspan fill="#1f2328" text-decoration="underline">Editor</tspan></text>
@@ -79,7 +79,7 @@
 <text x="1348" y="670" font-size="14" xml:space="preserve"><tspan fill="#1f2328">Switch</tspan></text>
 <text x="854" y="690" font-size="14" xml:space="preserve"><tspan fill="#0969da">feat/dark-mode</tspan><tspan fill="#1a7f37">  ↑1</tspan><tspan fill="#cf222e"> ↓2</tspan><tspan fill="#1a7f37">  ✓ clean</tspan><tspan fill="#656d76">  · yesterday</tspan></text>
 <text x="854" y="710" font-size="14" xml:space="preserve"><tspan fill="#1f2328" font-style="italic">Add a dark theme toggle to the header</tspan></text>
-<text x="854" y="730" font-size="14" xml:space="preserve"><tspan fill="#656d76">ports 4130-4139  </tspan><tspan fill="#656d76">○ idle</tspan></text>
+<text x="854" y="730" font-size="14" xml:space="preserve"><tspan fill="#656d76">ports 4130-4139  </tspan><tspan fill="#656d76">○ no dev server</tspan></text>
 <text x="854" y="750" font-size="14" xml:space="preserve"><tspan fill="#656d76">shop-app.worktrees/dark-mode</tspan></text>
 <text x="854" y="770" font-size="14" xml:space="preserve"><tspan fill="#1f2328" text-decoration="underline">Terminal</tspan></text>
 <text x="935.2" y="770" font-size="14" xml:space="preserve"><tspan fill="#1f2328" text-decoration="underline">Editor</tspan></text>
