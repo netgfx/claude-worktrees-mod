@@ -17,12 +17,19 @@ A Claude Code mod for running several git worktrees in parallel without them spi
 | Problem | What the mod does |
 |---|---|
 | "Which folder was the auth work in?" | Each worktree card has a color, a name and a one-sentence task. A worktree with no task gets one written from the first prompt sent in it, or you can press **Suggest**, which writes one from its commits. |
-| Switching branches breaks the work in progress | **Switch** moves *this* Claude session into another worktree with Claude Code's own `EnterWorktree` tool. Nothing is checked out over another branch. **Terminal** opens a new tab running `claude` in that worktree; on Windows Terminal the tab takes the worktree's color. |
+| "Which agent is on which worktree, and is it still running?" | Each card lists every Claude session working in that worktree: `◉ working` or `○ waiting`, the model (`opus 5.5`), the effort level, and the agent's name when the session runs a custom agent (`--agent code-reviewer`). The default agent shows no name. Sessions share this through `$.store`, so it only covers sessions that also run this mod. A session that stops reporting for 2 minutes is dropped from the card. |
+| Switching branches breaks the work in progress | **Switch** moves *this* Claude session into another worktree with Claude Code's `/cd`. Nothing is checked out over another branch, and the session runs there as if it had started there. On builds without `/cd`, Switch falls back to the `EnterWorktree` tool, which isolates the session (see below). **Terminal** opens a new tab running `claude` in that worktree; on Windows Terminal the tab takes the worktree's color. |
 | Two dev servers fight over `localhost:5173` | Each worktree gets its own block of 10 ports (4100–4109, 4110–4119, …). Blocks are recorded machine-wide, so two repositories never get the same one. Blocks that already have a listener are skipped. |
 | The agent doesn't know which port to use | `PORT`, `WORKTREE_PORT` and `WORKTREE_NAME` are set for every shell Claude starts. The system prompt names the worktree, its task, the other worktrees and their ports, and gives the right `--port` flags. |
 | The agent starts `vite` on its default port anyway | **Port guard:** a dev-server command (Bash or PowerShell) is refused if it uses another worktree's port or a default port, or if it starts a server that ignores `PORT` (vite, ng serve, storybook, uvicorn, …) without `--port`. For `npm run dev` and similar, the guard reads the script from `package.json`. The refusal tells Claude the exact command to run instead. Press `g` in the panel to turn the guard off. |
-| A new worktree has no `.env` | **New worktree** takes a one-sentence task. Haiku names the branch (`feat/oauth-login`), and the worktree is created in `../<repo>.worktrees/<name>` from the default branch. Ignored `.env*` files are copied over from the main worktree. |
+| A new worktree has no `.env` | **New worktree** takes a one-sentence task. Haiku names the branch (`feat/oauth-login`), and the worktree is created in `<repo>/.claude/worktrees/<name>` from the default branch. That's where Claude Code keeps its own worktrees, so its `EnterWorktree` tool can switch between them. `/.claude/worktrees/` is added to `.git/info/exclude`, so the main worktree never shows them as untracked. Ignored `.env*` files are copied over from the main worktree. |
 | Old worktrees pile up | **Remove** asks to confirm, and offers **Force remove** if the worktree has uncommitted changes. The branch is kept. **Prune** clears entries whose folder is gone. |
+
+## `/cd` versus `EnterWorktree`
+
+A session that enters a worktree with `EnterWorktree` is *isolated*. Claude Code then refuses any shell command it can't prove stays inside that worktree: `&&` chains that `cd` elsewhere, shell variables in arguments, even `claude -p` from Bash. `/cd` moves the session without isolating it, which is why Switch uses it.
+
+When a session is isolated anyway (Claude ran `EnterWorktree` itself, or the build has no `/cd`), the mod adds a short guide to the system prompt so Claude writes commands the check accepts: one plain command per call, no `cd`, paths spelled out, and the file tools instead of `sed`/`awk` one-liners. To lift the isolation, type `/cd <worktree path>` yourself.
 
 ## Git features it uses
 
@@ -63,9 +70,11 @@ Each card has **Switch**, **Terminal**, **Editor** (VS Code), **Copy cd**, **Edi
 
 - `$.process.run`: `git`, `netstat` (Windows) or `lsof`/`ss` (macOS/Linux) to see which ports are listening, and `wt`, `cmd`, `osascript` and `code` to open terminals and the editor.
 - `$.env.set`: `PORT`, `WORKTREE_PORT`, `WORKTREE_NAME`. Setting `PORT` affects every process the session starts after it, MCP servers included.
-- `$.tool.call`: `EnterWorktree` / `ExitWorktree` when you press Switch. These go through the normal permission check.
+- `$.command.list`, `$.command.run`: `/cd <worktree>` when you press Switch. It may ask you to trust a folder the session hasn't worked in.
+- `$.tool.call`: `EnterWorktree` / `ExitWorktree`, only when the build has no `/cd`. These go through the normal permission check.
 - `$.model.complete` (Haiku): branch names and one-sentence task summaries.
-- `$.store`: the machine-wide port registry (`port:<n>`) and the guard setting.
+- `$.store`: the machine-wide port registry (`port:<n>`), the guard setting, and one `session:<id>` entry per running session (its worktree, model, effort, agent and working state).
+- `$.session.id`, `$.session.model`, `$.settings.read`: this session's model, and the `agent` and `effortLevel` settings until the first turn reports the effort actually used.
 - `$.fs`: reads `package.json` scripts and copies `.env*` into new worktrees.
 
 ## Tests
