@@ -1,0 +1,10 @@
+{
+  "name": "worktrees-manager-mod",
+  "version": "0.1.0",
+  "description": "A /worktrees side panel: colored, named worktrees with one-line tasks, fast session switching, and per-worktree dev-server ports Claude respects",
+  "author": { "name": "djmid", "email": "djmid71@gmail.com" },
+  "homepage": "https://github.com/netgfx/claude-worktrees-mod",
+  "repository": "https://github.com/netgfx/claude-worktrees-mod",
+  "license": "MIT",
+  "keywords": ["git", "worktree", "worktrees", "panel", "ports", "parallel", "mod"]
+}
