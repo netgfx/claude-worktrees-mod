@@ -2,6 +2,14 @@
 
 A Claude Code mod for running several git worktrees in parallel without them spilling into each other.
 
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/panel-light.png">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/panel.png">
+  <img alt="The Worktrees panel: four colored worktree cards with tasks, branches, port blocks and live servers, beside a session where the port guard redirects vite from 5173 to the worktree's own port 4110" src="docs/images/panel.png">
+</picture>
+
+<sub>Mockup of the panel in [dark](docs/images/panel.svg) and [light](docs/images/panel-light.svg) themes. On the left, the port guard refuses `vite --port 5173`, and Claude restarts the server on the worktree's own port.</sub>
+
 `/worktrees` opens a side panel listing every worktree of the repository. Each one shows its **color**, **name**, a **one-sentence task**, its branch, ahead/behind counts, uncommitted changes, its **port block**, and any dev server listening on it. The panel opens by itself when the repository has more than one worktree and the terminal is at least 144 columns wide.
 
 ## What it does
