@@ -968,7 +968,7 @@ export function register(on) {
         columnGap: 1,
         children: [
           Text({ bold: true, children: ['⎇ ' + repo.name] }),
-          Text({ dimColor: true, children: ['· ' + trees.length + ' worktree' + (trees.length === 1 ? '' : 's') + (live ? ' · ' + live + ' serving' : '')] }),
+          Text({ dimColor: true, children: ['· ' + trees.length + ' worktree' + (trees.length === 1 ? '' : 's') + (live ? ' · ' + live + ' dev server' + (live === 1 ? '' : 's') + ' up' : '')] }),
         ],
       }),
     )
@@ -1177,9 +1177,13 @@ export function register(on) {
               columnGap: 1,
               children: [
                 Text({ dimColor: true, children: ['ports ' + t.meta.port + '-' + (t.meta.port + PORT_BLOCK - 1)] }),
+                // What listens on the worktree's ports, not whether its agent is working
                 ...(ports.length
-                  ? ports.map((p) => Link({ key: 'link-' + t.id + '-' + p, href: 'http://localhost:' + p, label: '● :' + p }))
-                  : [Text({ dimColor: true, children: ['○ idle'] })]),
+                  ? [
+                      Text({ color: 'green', children: ['dev server'] }),
+                      ...ports.map((p) => Link({ key: 'link-' + t.id + '-' + p, href: 'http://localhost:' + p, label: '● :' + p })),
+                    ]
+                  : [Text({ dimColor: true, children: ['○ no dev server'] })]),
               ],
             }),
           )

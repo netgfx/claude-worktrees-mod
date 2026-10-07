@@ -86,7 +86,7 @@ t(PX + 16, 56, [('Worktrees', FG, 'font-weight="bold"'), ('   esc to close', DIM
 
 X = PX + 18
 y = 92
-t(X, y, [('⎇ shop-app', FG, 'font-weight="bold"'), (' · 4 worktrees · 2 serving', DIM)]); y += LH
+t(X, y, [('⎇ shop-app', FG, 'font-weight="bold"'), (' · 4 worktrees · 2 dev servers up', DIM)]); y += LH
 t(X, y, [('this session: ', DIM), ('● oauth-login :4110', AMBER, 'font-weight="bold"')]); y += LH + 12
 bx = button(X, y, 'New worktree (n)', primary=True)
 bx = button(bx + 6, y, 'Port guard: on (g)', plain=True)
@@ -129,11 +129,12 @@ for c in cards:
     t(X + 6, ry, [(c['task'], FG, 'font-style="italic"')]); ry += LH
     parts = [('ports ' + c['ports'] + '  ', DIM)]
     if c['live']:
+        parts.append(('dev server ', GREEN))
         for p in c['live']:
             parts.append(('● :%d' % p, GREEN, 'text-decoration="underline"'))
             parts.append(('  ', DIM))
     else:
-        parts.append(('○ idle', DIM))
+        parts.append(('○ no dev server', DIM))
     t(X + 6, ry, parts); ry += LH
     t(X + 6, ry, [(c['path'], DIM)]); ry += LH
     bx = X + 6
