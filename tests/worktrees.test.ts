@@ -11,6 +11,10 @@ import {
   parseBranchName,
   buildPrompt,
   norm,
+  prettyModel,
+  agentLabel,
+  liveSessions,
+  excludesWorktreeHome,
 } from '../hooks/register.js'
 
 const PANE = {
@@ -48,6 +52,7 @@ function fakeHost(calls: { argv: string[]; cwd?: string }[], overrides: Record<s
     if (sub === '--version') return ok('git version 2.54.0.windows.1\n')
     if (sub === 'worktree' && args[1] === 'list') return ok(LIST)
     if (sub === 'config' && args.includes('--get-regexp')) return ok(META)
+    if (sub === 'rev-parse' && args.includes('--git-common-dir')) return ok('C:/work/app/.git\n')
     if (sub === 'rev-parse' && args[1] === '--absolute-git-dir') return ok('C:/work/app/.git/worktrees/' + String(e.init?.cwd).split('/').pop() + '\n')
     if (sub === 'rev-parse' && args.includes('refs/heads/main')) return ok('aaaaaaa1\n')
     if (sub === 'rev-parse') return { value: { exitCode: 1, stdout: '', stderr: '' } }
@@ -58,10 +63,11 @@ function fakeHost(calls: { argv: string[]; cwd?: string }[], overrides: Record<s
   }
 }
 
-function stubs(on: any, calls: any[], opts: { cwd?: string; overrides?: Record<string, any>; store?: Record<string, unknown> } = {}) {
+function stubs(on: any, calls: any[], opts: { cwd?: string | (() => string); overrides?: Record<string, any>; store?: Record<string, unknown> } = {}) {
   on('process.run', fakeHost(calls, opts.overrides))
-  on('session.cwd', () => ({ value: opts.cwd ?? 'C:\\work\\app' }))
+  on('session.cwd', () => ({ value: typeof opts.cwd === 'function' ? opts.cwd() : opts.cwd ?? 'C:\\work\\app' }))
   mock.store(on, opts.store ?? {})
+  mock.clock(on, { now: 1000000 })
   on('env.set', () => ({ value: undefined }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('ui.status', () => ({ value: undefined }))
@@ -231,10 +237,30 @@ test('the guard can be turned off from the panel', async ($, on) => {
 
 // ---------- actions ----------
 
-test('Switch moves the session with EnterWorktree', async ($, on) => {
+test('Switch moves the session with /cd, which leaves its shell unrestricted', async ($, on) => {
+  const calls: any[] = []
+  const tools: any[] = []
+  let cwd = 'C:\\work\\app'
+  stubs(on, calls, { cwd: () => cwd })
+  on('command.list', () => ({ value: [{ name: 'cd' }, { name: 'clear' }] }))
+  on('command.run', ($: any, e: any) => {
+    if (e.command === 'cd') cwd = e.args
+    return { text: '' }
+  })
+  on('tool.call', ($: any, e: any) => { tools.push(e); return { result: 'ok', text: 'Switched' } })
+  await $.command.run({ command: 'worktrees', args: '' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' } as any)
+  await ui.press({ key: 'switch-auth' })
+  expect(cwd).toBe('C:\\work\\app.worktrees\\auth')
+  expect(tools.some((t) => t.tool === 'EnterWorktree')).toBe(false)
+  expect(await ui.find({ type: 'Text', text: /now works in "auth".*PORT=4110/ })).toBeDefined()
+})
+
+test('without /cd, Switch falls back to EnterWorktree', async ($, on) => {
   const calls: any[] = []
   const tools: any[] = []
   stubs(on, calls)
+  on('command.list', () => ({ value: [{ name: 'clear' }] }))
   on('tool.call', ($: any, e: any) => { tools.push(e); return { result: 'ok', text: 'Switched' } })
   await $.command.run({ command: 'worktrees', args: '' })
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' } as any)
@@ -243,16 +269,21 @@ test('Switch moves the session with EnterWorktree', async ($, on) => {
   expect(enter.path).toBe('C:\\work\\app.worktrees\\auth')
 })
 
-test('New worktree: model names the branch, git adds it with relative paths, task is stored', async ($, on) => {
+test('New worktree: model names the branch, git adds it under .claude/worktrees with relative paths, task is stored', async ($, on) => {
   const calls: any[] = []
+  const written: Record<string, string> = {}
   stubs(on, calls)
+  const slash = (p: string) => String(p).replace(/\\/g, '/')
+  on('fs.read', ($: any, e: any) => (slash(e.path).endsWith('info/exclude') ? { value: '# git ls-files --others --exclude-from=.git/info/exclude\n' } : { deny: 'missing' }))
+  on('fs.write', ($: any, e: any) => { written[slash(e.path)] = e.text; return { value: undefined } })
   on('model.complete', () => ({ value: { isAnswered: true, text: 'feat/oauth-login', usage: USAGE } }))
   await $.command.run({ command: 'worktrees', args: '' })
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' } as any)
   await ui.press({ key: 'new' })
   await ui.input({ key: 'new-task', text: 'Add OAuth login to the settings page' })
   const args = gitArgs(calls)
-  expect(args).toContain('worktree add --relative-paths -b feat/oauth-login C:/work/app.worktrees/oauth-login main')
+  expect(args).toContain('worktree add --relative-paths -b feat/oauth-login C:/work/app/.claude/worktrees/oauth-login main')
+  expect(written['C:/work/app/.git/info/exclude']).toBe('# git ls-files --others --exclude-from=.git/info/exclude\n/.claude/worktrees/\n')
   expect(args).toContain('config wtmod.oauth-login.task Add OAuth login to the settings page')
   expect(await ui.find({ type: 'Text', text: /Created "oauth-login" on feat\/oauth-login from main/ })).toBeDefined()
   expect(await ui.find({ type: 'Button', key: 'notice-switch' } as any)).toBeUndefined() // list stub has no new tree
@@ -294,4 +325,96 @@ test('outside a repository the panel says so', async ($, on) => {
   await $.command.run({ command: 'worktrees', args: '' })
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' } as any)
   expect(await ui.find({ type: 'Text', text: 'Not inside a git repository.' })).toBeDefined()
+})
+
+// ---------- what each worktree's session runs ----------
+
+const ROOT = 'c:/work/app'
+const presence = (over: Record<string, unknown>) => ({ sid: 'other1', root: ROOT, wt: 'auth', model: 'claude-opus-5-5', effort: 'high', agent: '', isWorking: true, at: 1000000, ...over })
+
+test('exclude detection and the isolation advice in the prompt', async () => {
+  expect(excludesWorktreeHome('*.log\n/.claude/worktrees/\n')).toBe(true)
+  expect(excludesWorktreeHome('.claude/\n')).toBe(true)
+  expect(excludesWorktreeHome('.claude/worktrees/**\r\n')).toBe(true)
+  expect(excludesWorktreeHome('.claude/settings.local.json\n')).toBe(false)
+  const tree = { path: 'C:/work/app/.claude/worktrees/x', branch: 'feat/x', meta: { name: 'x', port: 4110, task: '' } }
+  expect(buildPrompt(tree, [tree], { isIsolated: true })).toMatch(/entered the worktree with EnterWorktree.*\n- One plain command per call/)
+  expect(buildPrompt(tree, [tree])).not.toMatch(/EnterWorktree/)
+})
+
+test('model names, agent labels and live sessions', async () => {
+  expect(prettyModel('claude-opus-5-5')).toBe('opus 5.5')
+  expect(prettyModel('claude-sonnet-5-5[1m]')).toBe('sonnet 5.5 1M')
+  expect(prettyModel('claude-haiku-5-5-20260101')).toBe('haiku 5.5')
+  expect(prettyModel('us.anthropic.claude-fable-5-1-v1:0')).toBe('fable 5.1')
+  expect(agentLabel('claude')).toBe('')
+  expect(agentLabel('Claude')).toBe('')
+  expect(agentLabel('')).toBe('')
+  expect(agentLabel('code-reviewer')).toBe('code-reviewer')
+  const list = liveSessions(
+    [presence({}), presence({ sid: 'old', at: 1 }), presence({ sid: 'elsewhere', root: 'c:/other' }), presence({ sid: 'me' })],
+    ROOT,
+    1000000,
+    'me',
+  )
+  expect(list.map((s: any) => s.sid)).toEqual(['other1'])
+})
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test('a card shows the model, effort and custom agent of the session working there on ' + surface, async ($, on) => {
+    const calls: any[] = []
+    stubs(on, calls, { store: { 'session:other1': presence({ agent: 'code-reviewer' }) } })
+    await $.command.run({ command: 'worktrees', args: '' })
+    const ui = await $.ui.mount({ ...PANE, surface } as any)
+    expect(await ui.find({ type: 'Text', text: '◉ working' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'opus 5.5' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '· high' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '· agent code-reviewer' })).toBeDefined()
+    await ui.unmount()
+  })
+}
+
+test('the default claude agent and ended sessions show nothing', async ($, on) => {
+  const calls: any[] = []
+  stubs(on, calls, {
+    store: {
+      'session:other1': presence({ agent: 'claude', isWorking: false }),
+      'session:gone': presence({ sid: 'gone', model: 'claude-haiku-5-5', at: 1 }),
+    },
+  })
+  await $.command.run({ command: 'worktrees', args: '' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' } as any)
+  expect(await ui.find({ type: 'Text', text: '○ waiting' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /agent/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: 'haiku 5.5' })).toBeUndefined()
+})
+
+test('a session publishes its worktree, model and agent, and working while a turn runs', async ($, on) => {
+  const calls: any[] = []
+  const saved = new Map<string, any>()
+  on('process.run', fakeHost(calls))
+  on('session.cwd', () => ({ value: 'C:\\work\\app.worktrees\\auth' }))
+  on('store.get', ($: any, e: any) => ({ value: saved.get(e.key) }))
+  on('store.set', ($: any, e: any) => { saved.set(e.key, e.value); return { value: undefined } })
+  on('store.keys', () => ({ value: [...saved.keys()] }))
+  on('store.delete', ($: any, e: any) => { saved.delete(e.key); return { value: undefined } })
+  mock.clock(on, { now: 5000 })
+  on('session.id', () => ({ value: 'me1' }))
+  on('session.model', () => ({ value: 'claude-sonnet-5-5' }))
+  on('settings.read', () => ({ value: { agent: 'code-reviewer', effortLevel: 'medium' } }))
+  on('env.set', () => ({ value: undefined }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.status', () => ({ value: undefined }))
+  on('ui.log', () => ({ value: undefined }))
+  on('fs.exists', () => ({ value: false }))
+  on('command.register', () => ({ value: undefined }))
+  on('session.start', () => ({ cwd: 'C:\\work\\app.worktrees\\auth' }))
+  on('turn.start', ($: any, e: any) => ({ turnId: e.turnId }))
+  on('session.end', ($: any, e: any) => ({ sessionId: e.sessionId }))
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: 'C:\\work\\app.worktrees\\auth' } as any)
+  expect(saved.get('session:me1')).toMatchObject({ sid: 'me1', root: ROOT, wt: 'auth', model: 'claude-sonnet-5-5', effort: 'medium', agent: 'code-reviewer', isWorking: false, at: 5000 })
+  await $.turn.start({ text: 'hi', turnId: 't1' } as any)
+  expect(saved.get('session:me1').isWorking).toBe(true)
+  await $.session.end({ reason: 'other', sessionId: 'me1' } as any)
+  expect(saved.has('session:me1')).toBe(false)
 })

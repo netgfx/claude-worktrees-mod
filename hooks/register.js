@@ -23,6 +23,12 @@ const PROMPT_ID = 'worktrees-manager-mod:worktree'
 const SHELL_TOOLS = ['Bash', 'PowerShell']
 const SWITCH_TOOLS = ['EnterWorktree', 'ExitWorktree']
 const ENV_FILE = /^\.env(\..+)?$/
+const STORE_SESSION = 'session:' // $.store key prefix: each running session's worktree, model, effort, agent
+const HEARTBEAT_MS = 30000 // how often a session says it is still running
+const STALE_MS = 120000 // a session silent this long has ended (or crashed)
+const FORGET_MS = 86400000 // presence older than a day is deleted
+const DEFAULT_AGENT = 'claude' // the default main agent: shown as nothing
+const WORKTREE_HOME = '.claude/worktrees' // where new worktrees go, under the main worktree
 
 const PALETTE = [
   { hex: '#4FC3F7', name: 'sky' },
@@ -77,6 +83,10 @@ let envSig = ''
 let promptText = ''
 const idCache = new Map() // worktree path -> git id
 const summarised = new Set() // worktree ids whose task was written from a prompt
+const me = { id: '', model: '', effort: '', agent: '', isWorking: false } // this session, as it publishes itself
+let sessions = [] // the other live sessions of this repository: { sid, wt, model, effort, agent, isWorking, at }
+let presenceSig = ''
+let isIsolated = false // the session entered a worktree with EnterWorktree: Claude Code restricts its shell
 
 // ---------- pure helpers (exported for tests) ----------
 
@@ -276,7 +286,7 @@ export function scriptName(cmd) {
   return m[3]
 }
 
-export function buildPrompt(tree, all) {
+export function buildPrompt(tree, all, options) {
   if (!tree) return ''
   const m = tree.meta
   const lines = [
@@ -305,7 +315,59 @@ export function buildPrompt(tree, all) {
       '- Never use another worktree\'s ports or a default port such as 3000, 5173, 8000 or 8080; a dev-server command that does is refused.',
     )
   }
+  if (options?.isIsolated) {
+    lines.push(
+      '',
+      'This session entered the worktree with EnterWorktree, so Claude Code refuses any shell command it cannot prove stays inside ' + tree.path + '. Write commands it can check:',
+      '- One plain command per call: no `&&`/`;` chains, heredocs or subshells that mix in `cd` or other folders.',
+      '- No `cd`; run from the worktree and give paths spelled out and double-quoted, never through shell variables.',
+      '- Use the Read, Grep, Glob and Edit tools for files instead of sed/awk/python one-liners over them.',
+      '- When a command is refused, split it the way the refusal says rather than rewording it.',
+    )
+  }
   return lines.join('\n')
+}
+
+// 'claude-opus-5-5[1m]' -> 'opus 5.5 1M', 'claude-haiku-5-5-20260101' -> 'haiku 5.5'
+export function prettyModel(id) {
+  let s = String(id ?? '').trim()
+  if (!s) return ''
+  const isLong = /\[1m\]/i.test(s)
+  s = s
+    .replace(/\[1m\]/gi, '')
+    .replace(/^(us|eu|apac|global)\.anthropic\./i, '')
+    .replace(/^claude-/i, '')
+    .replace(/-v\d+(:\d+)?$/i, '')
+    .replace(/-\d{8}$/, '')
+    .replace(/-(\d+)-(\d+)$/, ' $1.$2')
+    .replace(/-(\d+)$/, ' $1')
+    .replace(/-/g, ' ')
+  return s + (isLong ? ' 1M' : '')
+}
+
+// A custom agent's name; the default agent shows as nothing
+export function agentLabel(name) {
+  const n = String(name ?? '').trim()
+  return !n || n.toLowerCase() === DEFAULT_AGENT ? '' : n
+}
+
+export function effortLabel(effort) {
+  if (effort === undefined || effort === null || effort === '') return ''
+  return typeof effort === 'number' ? effort + ' tokens' : String(effort)
+}
+
+export function excludesWorktreeHome(text) {
+  return String(text ?? '')
+    .split(/\r?\n/)
+    .map((l) => l.trim().replace(/^\//, '').replace(/\/?\*{0,2}$/, ''))
+    .some((l) => l === WORKTREE_HOME || l === '.claude')
+}
+
+// Store entries -> the live sessions of one repository, newest first
+export function liveSessions(entries, root, now, ownId) {
+  return entries
+    .filter((s) => s && s.root === root && s.sid !== ownId && now - (Number(s.at) || 0) < STALE_MS)
+    .sort((a, b) => b.at - a.at)
 }
 
 // ---------- git and processes ----------
@@ -509,7 +571,7 @@ async function applySession($) {
     await $.env.set('WORKTREE_NAME', m.name)
     envSig = sig
   }
-  promptText = buildPrompt(current, trees)
+  promptText = buildPrompt(current, trees, { isIsolated })
   $.ui.status('⎇ ' + m.name + ' · ' + (current.branch || 'detached') + ' · :' + m.port + (m.task ? ' · ' + cleanSentence(m.task, 50) : ''))
 }
 
@@ -546,8 +608,10 @@ async function refresh($, options) {
       if (paneOpen) await scanPorts($)
     }
     await applySession($)
+    await publishPresence($)
+    await loadSessions($)
     loaded = true
-    const sig = JSON.stringify([repo, trees, current?.path, [...listening].sort()])
+    const sig = JSON.stringify([repo, trees, current?.path, [...listening].sort(), me, sessions.map((s) => ({ ...s, at: 0 }))])
     if (sig !== lastSig) {
       lastSig = sig
       $.ui.invalidate('ui.render')
@@ -632,7 +696,10 @@ async function createTree($, task, base) {
   }
   let branch = await branchFor($, text)
   const slug = branch.slice(branch.indexOf('/') + 1)
-  const home = parentDir(repo.mainRoot) + '/' + repo.name + '.worktrees'
+  // Claude Code's own place for worktrees: EnterWorktree and its isolation
+  // switch only between worktrees under it
+  const home = repo.mainRoot + '/' + WORKTREE_HOME
+  await excludeWorktreeHome($)
   let path = home + '/' + slug
   for (let i = 2; (await $.fs.exists(path).catch(() => false)) || (await gitMain($, ['rev-parse', '--verify', '--quiet', 'refs/heads/' + branch])).ok; i++) {
     path = home + '/' + slug + '-' + i
@@ -669,6 +736,26 @@ async function createTree($, task, base) {
   )
 }
 
+// Keeps the nested worktrees out of the main worktree's `git status`, without
+// touching a tracked .gitignore: .git/info/exclude is local to this clone
+async function excludeWorktreeHome($) {
+  const dir = await gitMain($, ['rev-parse', '--path-format=absolute', '--git-common-dir'])
+  if (!dir.ok) return
+  const file = dir.out.trim() + '/info/exclude'
+  let text = ''
+  try {
+    text = String(await $.fs.read(file)).replace(/\r\n/g, '\n')
+  } catch {
+    // no exclude file yet
+  }
+  if (excludesWorktreeHome(text)) return
+  try {
+    await $.fs.write(file, text + (text && !text.endsWith('\n') ? '\n' : '') + '/' + WORKTREE_HOME + '/\n')
+  } catch (err) {
+    $.ui.log('worktrees-manager-mod: could not update ' + file + ': ' + (err?.message ?? err), { to: 'debug' })
+  }
+}
+
 async function copyEnvFiles($, dest) {
   const r = await gitMain($, ['ls-files', '--others', '--ignored', '--exclude-standard', '-z', '--', '.env*'])
   const names = r.out.split('\0').filter((n) => n && !n.includes('/') && ENV_FILE.test(n))
@@ -685,12 +772,43 @@ async function copyEnvFiles($, dest) {
   return copied
 }
 
-// Moves this session into the worktree with Claude Code's own tool: the
-// session's directory changes, nothing is checked out over another branch
+async function hasCd($) {
+  try {
+    return (await $.command.list()).some((c) => c.name === 'cd')
+  } catch {
+    return false
+  }
+}
+
+// Moves this session into the worktree; nothing is checked out over another
+// branch. /cd moves the whole session like a fresh start there, so its shell
+// commands run unrestricted; EnterWorktree (the fallback) isolates the session,
+// and Claude Code then refuses commands it cannot prove stay in the worktree
 async function switchTo($, tree) {
   if (current && norm(current.path) === norm(tree.path)) {
     setNotice($, 'info', 'This session already works in "' + tree.meta.name + '".')
     return
+  }
+  if (await hasCd($)) {
+    let error = ''
+    try {
+      // Queued until Claude is idle; it may ask to trust the folder first
+      await $.command.run({ command: 'cd', args: nativePath(tree.path) })
+    } catch (err) {
+      error = String(err?.message ?? err)
+    }
+    lastSig = ''
+    await refresh($)
+    if (current && norm(current.path) === norm(tree.path)) {
+      isIsolated = false
+      setNotice($, 'ok', 'This session now works in "' + tree.meta.name + '" (' + (tree.branch || 'detached') + '). PORT=' + tree.meta.port + '.')
+      return
+    }
+    if (!error) {
+      setNotice($, 'info', 'The session stayed where it was (the move was declined).')
+      return
+    }
+    $.ui.log('worktrees-manager-mod: /cd failed, trying EnterWorktree: ' + error, { to: 'debug' })
   }
   let r = await $.tool.call({ tool: 'EnterWorktree', path: nativePath(tree.path) }).catch((err) => ({ deny: String(err?.message ?? err) }))
   if ((r.deny || r.isError) && tree.isMain) {
@@ -701,6 +819,7 @@ async function switchTo($, tree) {
     setNotice($, 'error', 'Could not switch to "' + tree.meta.name + '":\n' + lastLines(r.deny || r.text || 'refused', 4) + '\nUse Terminal to start a separate Claude session there.')
     return
   }
+  isIsolated = !tree.isMain
   setNotice($, 'ok', 'This session now works in "' + tree.meta.name + '" (' + (tree.branch || 'detached') + '). PORT=' + tree.meta.port + '.')
 }
 
@@ -832,6 +951,69 @@ async function readScript($, cmd) {
   }
 }
 
+// ---------- what each session runs ($.store, shared by every session on the machine) ----------
+
+async function initPresence($) {
+  try {
+    me.id = await $.session.id()
+    me.model = await $.session.model()
+  } catch (err) {
+    $.ui.log('worktrees-manager-mod: no session id or model: ' + (err?.message ?? err), { to: 'debug' })
+  }
+  try {
+    const settings = await $.settings.read()
+    if (!me.agent && typeof settings?.agent === 'string') me.agent = settings.agent
+    if (!me.effort && typeof settings?.effortLevel === 'string') me.effort = settings.effortLevel
+  } catch {
+    // the first turn's step names the effort
+  }
+  presenceSig = ''
+}
+
+// Writes this session's entry when it changed, or on the heartbeat
+async function publishPresence($, isHeartbeat) {
+  if (!me.id || !repo?.mainRoot || !current) return
+  const entry = { sid: me.id, root: norm(repo.mainRoot), wt: current.id, model: me.model, effort: me.effort, agent: me.agent, isWorking: me.isWorking }
+  const sig = JSON.stringify(entry)
+  if (sig === presenceSig && !isHeartbeat) return
+  presenceSig = sig
+  try {
+    await $.store.set(STORE_SESSION + me.id, { ...entry, at: await $.clock.now() })
+  } catch (err) {
+    $.ui.log('worktrees-manager-mod: could not publish this session: ' + (err?.message ?? err), { to: 'debug' })
+  }
+}
+
+async function loadSessions($) {
+  if (!repo?.mainRoot) {
+    sessions = []
+    return
+  }
+  const entries = []
+  try {
+    const now = await $.clock.now()
+    for (const key of await $.store.keys()) {
+      if (!key.startsWith(STORE_SESSION)) continue
+      const v = await $.store.get(key)
+      if (!v || typeof v !== 'object') continue
+      if (now - (Number(v.at) || 0) > FORGET_MS) await $.store.delete(key).catch(() => {})
+      else entries.push({ ...v, sid: v.sid || key.slice(STORE_SESSION.length) })
+    }
+    sessions = liveSessions(entries, norm(repo.mainRoot), now, me.id)
+  } catch (err) {
+    $.ui.log('worktrees-manager-mod: could not read the other sessions: ' + (err?.message ?? err), { to: 'debug' })
+  }
+}
+
+async function dropPresence($, sid) {
+  if (!sid) return
+  try {
+    await $.store.delete(STORE_SESSION + sid)
+  } catch {
+    // already gone
+  }
+}
+
 // ---------- drawing ----------
 
 function shortPath(p) {
@@ -851,6 +1033,11 @@ export function register(on) {
     $.clock.every(POLL_MS, () => {
       if (paneOpen && !busy) refresh($).catch(() => {})
     })
+    // Other sessions take a session that stops saying so as ended
+    $.clock.every(HEARTBEAT_MS, () => {
+      publishPresence($, true).catch(() => {})
+    })
+    await initPresence($)
     try {
       await refresh($, { isStart: true })
       // Open by itself when the repository has worktrees to tell apart; a pane
@@ -918,6 +1105,16 @@ export function register(on) {
 
   on('tool.call', { tool: SWITCH_TOOLS }, async ($, e, next) => {
     const result = await next(e)
+    if (!result.deny && !result.isError) isIsolated = e.tool === 'EnterWorktree'
+    lastSig = ''
+    await refresh($).catch(() => {})
+    return result
+  }).catch(($, e, next) => next(e)) // fail open: worktree bookkeeping never blocks Claude
+
+  // /cd, typed or from Switch, moves the session out of any isolation
+  on('command.run', { command: 'cd' }, async ($, e, next) => {
+    const result = await next(e)
+    isIsolated = false
     lastSig = ''
     await refresh($).catch(() => {})
     return result
@@ -929,9 +1126,59 @@ export function register(on) {
   }).catch(($, e, next) => next(e)) // fail open: worktree bookkeeping never blocks Claude
 
   on('turn.complete', async ($, e, next) => {
+    if (e.agentId === undefined) me.isWorking = false
     if (!busy) refresh($).catch(() => {})
     return next(e)
   })
+
+  // Working or waiting, as every panel shows it
+  on('turn.start', async ($, e, next) => {
+    me.isWorking = true
+    publishPresence($).catch(() => {})
+    $.ui.invalidate('ui.render')
+    return next(e)
+  }).catch(($, e, next) => next(e)) // fail open: worktree bookkeeping never blocks Claude
+
+  // The model and effort each main-loop request actually goes out with
+  on('turn.step', async function* ($, e, next) {
+    if (e.agentId === undefined) {
+      const effort = effortLabel(e.effort)
+      if (e.model !== me.model || (effort && effort !== me.effort)) {
+        me.model = e.model
+        if (effort) me.effort = effort
+        publishPresence($).catch(() => {})
+        $.ui.invalidate('ui.render')
+      }
+    }
+    return yield* next(e)
+  })
+
+  // A session started with --agent names its agent on the main thread's hooks
+  on('classic.Stop', async ($, e, next) => {
+    if (!e.agent_id && e.agent_type && e.agent_type !== me.agent) {
+      me.agent = e.agent_type
+      publishPresence($).catch(() => {})
+    }
+    if (!e.agent_id && e.effort?.level && e.effort.level !== me.effort) {
+      me.effort = e.effort.level
+      publishPresence($).catch(() => {})
+    }
+    return next(e)
+  }).catch(($, e, next) => next(e)) // fail open: worktree bookkeeping never blocks Claude
+
+  on('session.end', async ($, e, next) => {
+    await dropPresence($, e.sessionId || me.id)
+    me.id = ''
+    me.isWorking = false
+    return next(e)
+  }).catch(($, e, next) => next(e)) // fail open: worktree bookkeeping never blocks Claude
+
+  // After /clear, /resume or a fork the session runs under a new id
+  on('classic.SessionStart', { source: ['clear', 'resume', 'fork'] }, async ($, e, next) => {
+    await initPresence($)
+    await refresh($).catch(() => {})
+    return next(e)
+  }).catch(($, e, next) => next(e)) // fail open: worktree bookkeeping never blocks Claude
 
   on('ui.render', { component: 'Pane' }, async ($, e, next) => {
     if (e.requestId !== PANE) return next(e)
@@ -1169,6 +1416,27 @@ export function register(on) {
             ? Text({ italic: true, wrap: 'wrap', children: [t.meta.task] })
             : Text({ dimColor: true, wrap: 'wrap', children: ['No task yet: Edit, or Suggest one from its commits.'] }),
         )
+        // The Claude sessions working in this worktree: this one, and others on the machine
+        const here = [...(isHere && me.id ? [{ ...me, sid: me.id, isMe: true }] : []), ...sessions.filter((s) => s.wt === t.id)]
+        for (const s of here) {
+          const agent = agentLabel(s.agent)
+          const effort = effortLabel(s.effort)
+          rows.push(
+            Box({
+              key: 'session-' + t.id + '-' + s.sid,
+              flexDirection: 'row',
+              flexWrap: 'wrap',
+              columnGap: 1,
+              children: [
+                s.isWorking ? Text({ color: 'green', bold: true, children: ['◉ working'] }) : Text({ dimColor: true, children: ['○ waiting'] }),
+                ...(s.model ? [Text({ color: 'magenta', children: [prettyModel(s.model)] })] : []),
+                ...(effort ? [Text({ dimColor: true, children: ['· ' + effort] })] : []),
+                ...(agent ? [Text({ color: 'yellow', children: ['· agent ' + agent] })] : []),
+                ...(here.length > 1 && s.isMe ? [Text({ dimColor: true, children: ['(this session)'] })] : []),
+              ],
+            }),
+          )
+        }
         if (t.meta.port) {
           rows.push(
             Box({
