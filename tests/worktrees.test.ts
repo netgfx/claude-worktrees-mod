@@ -327,6 +327,29 @@ test('outside a repository the panel says so', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: 'Not inside a git repository.' })).toBeDefined()
 })
 
+test('if the session cwd is deleted, refresh falls back to known repo paths and keeps Switch actions', async ($, on) => {
+  const calls: any[] = []
+  let cwd = 'C:\\work\\app'
+  stubs(on, calls, {
+    cwd: () => cwd,
+    overrides: {
+      worktree: (args: string[], e: any) => {
+        if (args[1] !== 'list') return { value: { exitCode: 0, stdout: LIST, stderr: '' } }
+        return String(e.init?.cwd).includes('app.worktrees\\gone')
+          ? { value: { exitCode: 128, stdout: '', stderr: 'fatal: not a git repository' } }
+          : { value: { exitCode: 0, stdout: LIST, stderr: '' } }
+      },
+    },
+  })
+  on('fs.exists', ($: any, e: any) => ({ value: String(e.path).includes('C:/work/app') }))
+  await $.command.run({ command: 'worktrees', args: '' })
+  cwd = 'C:\\work\\app.worktrees\\gone'
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' } as any)
+  await ui.press({ key: 'refresh' })
+  expect(await ui.find({ type: 'Button', key: 'switch-auth' } as any)).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Not inside a git repository.' })).toBeUndefined()
+})
+
 // ---------- what each worktree's session runs ----------
 
 const ROOT = 'c:/work/app'
