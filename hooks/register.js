@@ -403,6 +403,37 @@ async function run($, argv, timeoutMs) {
   }
 }
 
+function addProbePath(out, seen, path) {
+  const p = String(path ?? '').trim()
+  if (!p) return
+  const key = norm(p)
+  if (seen.has(key)) return
+  seen.add(key)
+  out.push(p)
+}
+
+async function refreshProbeCwds($, cwd) {
+  const out = []
+  const seen = new Set()
+  addProbePath(out, seen, cwd)
+  addProbePath(out, seen, current?.path)
+  addProbePath(out, seen, repo?.mainRoot)
+  for (const t of trees) if (!t.isBare && !t.prunable) addProbePath(out, seen, t.path)
+  const valid = []
+  for (const p of out) {
+    if (norm(p) === norm(cwd)) {
+      valid.push(p)
+      continue
+    }
+    try {
+      if (await $.fs.exists(p)) valid.push(p)
+    } catch {
+      // ignore non-probeable paths
+    }
+  }
+  return valid.length ? valid : [cwd]
+}
+
 async function detectPlatform($, cwd) {
   if (platform) return platform
   if (/^[A-Za-z]:[\\/]/.test(cwd) || cwd.startsWith('\\\\')) {
@@ -579,9 +610,18 @@ async function refresh($, options) {
   if (refreshing) return
   refreshing = true
   try {
-    const cwd = await $.session.cwd()
+    const cwd = String((await $.session.cwd()) ?? '')
     await detectPlatform($, cwd)
-    const list = await git($, ['worktree', 'list', '--porcelain', '-z'], { cwd })
+    const probes = await refreshProbeCwds($, cwd)
+    let list = { ok: false, out: '', err: '', isMissing: false }
+    for (const probe of probes) {
+      const next = await git($, ['worktree', 'list', '--porcelain', '-z'], { cwd: probe })
+      if (!list.ok) list = next
+      if (next.ok) {
+        list = next
+        break
+      }
+    }
     if (!list.ok) {
       repo = { error: list.isMissing ? 'git is not installed or not on PATH.' : 'Not inside a git repository.' }
       trees = []
