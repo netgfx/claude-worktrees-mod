@@ -3,14 +3,14 @@
   "owner": { "name": "djmid", "email": "djmid71@gmail.com" },
   "metadata": {
     "description": "worktrees-manager-mod: a git worktrees manager for Claude Code",
-    "version": "0.2.0"
+    "version": "0.2.1"
   },
   "plugins": [
     {
       "name": "worktrees-manager-mod",
       "source": "./",
       "description": "A /worktrees side panel: colored, named worktrees with one-line tasks, fast session switching, and per-worktree dev-server ports Claude respects",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "author": { "name": "djmid", "email": "djmid71@gmail.com" },
       "homepage": "https://github.com/netgfx/claude-worktrees-mod",
       "repository": "https://github.com/netgfx/claude-worktrees-mod",
