@@ -7,6 +7,7 @@
   "homepage": "https://github.com/netgfx/claude-worktrees-mod",
   "repository": "https://github.com/netgfx/claude-worktrees-mod",
   "license": "MIT",
+  "privacyPolicyUrl": "https://github.com/netgfx/claude-worktrees-mod/blob/main/PRIVACY.md",
   "keywords": ["git", "worktree", "worktrees", "panel", "ports", "parallel", "mod"],
   "network": { "hosts": [] },
   "userConfig": {
