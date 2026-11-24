@@ -1154,7 +1154,11 @@ export function register(on, opts) {
         ...registry.filter((r) => r.root !== norm(repo.mainRoot)).map((r) => ({ name: r.name + ' in ' + r.repo, port: r.port, path: r.path })),
       ]
       const deny = checkDevCommand(cmd, { name: current.meta.name, port: current.meta.port }, others, script)
-      if (deny) return { deny: deny + ' (If the user asked for that exact port, ask them to turn off the port guard in /worktrees.)' }
+      if (deny) {
+        // Tell the user too, not only Claude: they can turn the guard off
+        $.ui.toast('Port guard refused a dev-server command (' + cleanSentence(cmd, 50) + '). Turn it off with g in /worktrees.')
+        return { deny: deny + ' (If the user asked for that exact port, ask them to turn off the port guard in /worktrees.)' }
+      }
     }
     const result = await next(e)
     if (/\bworktree\b/.test(String(e.command ?? '')) && !busy) refresh($).catch(() => {})

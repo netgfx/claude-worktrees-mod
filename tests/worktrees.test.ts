@@ -77,6 +77,8 @@ type Stubs = {
   exists?: (path: string) => boolean
   // The folder holding the repository, as fakeHost takes it
   base?: string
+  // Collects the toasts shown
+  toasts?: string[]
 }
 
 // Every path the fs.exists stub saw, for pathsKept
@@ -91,7 +93,10 @@ function stubs(on: any, calls: any[], opts: Stubs = {}) {
   on('env.set', () => ({ value: undefined }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('ui.status', () => ({ value: undefined }))
-  on('ui.toast', () => ({ value: undefined }))
+  on('ui.toast', ($: any, e: any) => {
+    opts.toasts?.push(String(e.text ?? e))
+    return { value: undefined }
+  })
   on('ui.log', () => ({ value: undefined }))
   on('ui.copy', () => ({ value: undefined }))
   on('fs.exists', ($: any, e: any) => {
@@ -238,13 +243,17 @@ test('injectContext: false keeps the worktree section out of the system prompt',
 for (const tool of ['Bash', 'PowerShell']) {
   test(tool + ': a dev server on another worktree\'s port is refused, its own runs', async ($, on) => {
     const calls: any[] = []
-    stubs(on, calls)
+    const toasts: string[] = []
+    stubs(on, calls, { toasts })
     on('tool.call', () => ({ result: 'ran' }))
     await $.command.run({ command: 'worktrees', args: '' })
     const bad: any = await $.tool.call({ tool, command: 'npx vite --port 4110' } as any)
     expect(bad.deny).toMatch(/belongs to the worktree "auth".*vite --port 4100 --strictPort/)
+    // The user sees the refusal and how to turn the guard off
+    expect(toasts.some((t) => /Port guard refused .*npx vite --port 4110.*g in \/worktrees/.test(t))).toBe(true)
     const good: any = await $.tool.call({ tool, command: 'npx vite --port 4100 --strictPort' } as any)
     expect(good.deny).toBeUndefined()
+    expect(toasts.length).toBe(1)
   })
 }
 
