@@ -27,33 +27,39 @@ const PANE = {
 
 const USAGE = { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
 
-const LIST = [
-  'worktree C:/work/app', 'HEAD aaaaaaa1', 'branch refs/heads/main', '',
-  'worktree C:/work/app.worktrees/auth', 'HEAD bbbbbbb2', 'branch refs/heads/feat/auth', '',
-  'worktree C:/work/app.worktrees/gone', 'HEAD ccccccc3', 'detached', 'prunable gitdir file points to non-existent location', '',
-].join('\0')
+// `git worktree list --porcelain -z` for a repository at <base>/app
+const listFor = (base: string) =>
+  [
+    'worktree ' + base + '/app', 'HEAD aaaaaaa1', 'branch refs/heads/main', '',
+    'worktree ' + base + '/app.worktrees/auth', 'HEAD bbbbbbb2', 'branch refs/heads/feat/auth', '',
+    'worktree ' + base + '/app.worktrees/gone', 'HEAD ccccccc3', 'detached', 'prunable gitdir file points to non-existent location', '',
+  ].join('\0')
+const LIST = listFor('C:/work')
 
 const META = [
   'wtmod.(main).port\n4100', 'wtmod.(main).color\n#4FC3F7',
   'wtmod.auth.name\nauth', 'wtmod.auth.task\nAdd OAuth login to settings', 'wtmod.auth.port\n4110', 'wtmod.auth.color\n#FFB74D', '',
 ].join('\0')
 
-// A fake git (and netstat): answers by subcommand and records every argv
-function fakeHost(calls: { argv: string[]; cwd?: string }[], overrides: Record<string, any> = {}) {
+// A fake git (and netstat): answers by subcommand and records every argv.
+// `base` is the folder holding the repository: C:/work, or /work for the POSIX twins
+function fakeHost(calls: { argv: string[]; cwd?: string }[], overrides: Record<string, any> = {}, base = 'C:/work') {
   return ($: any, e: any) => {
     const argv: string[] = [...e.argv]
     calls.push({ argv, cwd: e.init?.cwd })
     const ok = (stdout = '') => ({ value: { exitCode: 0, stdout, stderr: '' } })
     if (argv[0] === 'netstat') return ok(argv.includes('TCP') ? '  TCP    0.0.0.0:4110    0.0.0.0:0    LISTENING    1234\n' : '')
+    if (argv[0] === 'lsof') return ok('node 1234 me 23u IPv4 0x1 0t0 TCP *:4110 (LISTEN)\n')
+    if (argv[0] === 'uname') return ok('Linux\n')
     if (argv[0] !== 'git') return ok('')
     const args = argv.slice(5)
     const sub = args[0]
     if (overrides[sub]) return overrides[sub](args, e)
     if (sub === '--version') return ok('git version 2.54.0.windows.1\n')
-    if (sub === 'worktree' && args[1] === 'list') return ok(LIST)
+    if (sub === 'worktree' && args[1] === 'list') return ok(listFor(base))
     if (sub === 'config' && args.includes('--get-regexp')) return ok(META)
-    if (sub === 'rev-parse' && args.includes('--git-common-dir')) return ok('C:/work/app/.git\n')
-    if (sub === 'rev-parse' && args[1] === '--absolute-git-dir') return ok('C:/work/app/.git/worktrees/' + String(e.init?.cwd).split('/').pop() + '\n')
+    if (sub === 'rev-parse' && args.includes('--git-common-dir')) return ok(base + '/app/.git\n')
+    if (sub === 'rev-parse' && args[1] === '--absolute-git-dir') return ok(base + '/app/.git/worktrees/' + String(e.init?.cwd).split('/').pop() + '\n')
     if (sub === 'rev-parse' && args.includes('refs/heads/main')) return ok('aaaaaaa1\n')
     if (sub === 'rev-parse') return { value: { exitCode: 1, stdout: '', stderr: '' } }
     if (sub === 'status') return ok('# branch.oid 1\0# branch.head x\0# branch.upstream origin/x\0# branch.ab +2 -1\0' + '1 .M N... 100644 100644 100644 a b src/a.ts\0')
@@ -63,8 +69,22 @@ function fakeHost(calls: { argv: string[]; cwd?: string }[], overrides: Record<s
   }
 }
 
-function stubs(on: any, calls: any[], opts: { cwd?: string | (() => string); overrides?: Record<string, any>; store?: Record<string, unknown> } = {}) {
-  on('process.run', fakeHost(calls, opts.overrides))
+type Stubs = {
+  cwd?: string | (() => string)
+  overrides?: Record<string, any>
+  store?: Record<string, unknown>
+  // Which paths exist; nothing by default
+  exists?: (path: string) => boolean
+  // The folder holding the repository, as fakeHost takes it
+  base?: string
+}
+
+// Every path the fs.exists stub saw, for pathsKept
+const seen = { existsPaths: [] as string[] }
+
+function stubs(on: any, calls: any[], opts: Stubs = {}) {
+  seen.existsPaths = []
+  on('process.run', fakeHost(calls, opts.overrides, opts.base))
   on('session.cwd', () => ({ value: typeof opts.cwd === 'function' ? opts.cwd() : opts.cwd ?? 'C:\\work\\app' }))
   mock.store(on, opts.store ?? {})
   mock.clock(on, { now: 1000000 })
@@ -74,7 +94,10 @@ function stubs(on: any, calls: any[], opts: { cwd?: string | (() => string); ove
   on('ui.toast', () => ({ value: undefined }))
   on('ui.log', () => ({ value: undefined }))
   on('ui.copy', () => ({ value: undefined }))
-  on('fs.exists', () => ({ value: false }))
+  on('fs.exists', ($: any, e: any) => {
+    seen.existsPaths.push(String(e.path))
+    return { value: opts.exists ? opts.exists(String(e.path)) : false }
+  })
 }
 
 const gitArgs = (calls: any[]) => calls.filter((c) => c.argv[0] === 'git').map((c) => c.argv.slice(5).join(' '))
@@ -269,10 +292,23 @@ test('without /cd, Switch falls back to EnterWorktree', async ($, on) => {
   expect(enter.path).toBe('C:\\work\\app.worktrees\\auth')
 })
 
-test('New worktree: model names the branch, git adds it under .claude/worktrees with relative paths, task is stored', async ($, on) => {
+// Creates a worktree from the panel; `base` is C:/work (Windows) or /work (POSIX)
+// Whether the runtime handed the stubs the paths the mod built under `base`.
+// A host keeps paths of its own kind only: on macOS and Linux the runtime reads
+// `C:/...` as relative and prefixes the working directory before a stub sees
+// it, and Windows can do the same to `/work/...`. So each twin below checks the
+// paths it is keyed by, and leaves the host that rewrites them to the other
+// twin. The test sandbox has no `process.platform` to ask instead.
+function pathsKept(base: string) {
+  const want = base + '/app/.claude/worktrees/oauth-login'
+  return seen.existsPaths.some((p) => p.replace(/\\/g, '/') === want)
+}
+
+// Creates a worktree from the panel in a repository at `base`/app
+async function createFromPanel($: any, on: any, base: string, cwd: string) {
   const calls: any[] = []
   const written: Record<string, string> = {}
-  stubs(on, calls)
+  stubs(on, calls, { base, cwd })
   const slash = (p: string) => String(p).replace(/\\/g, '/')
   on('fs.read', ($: any, e: any) => (slash(e.path).endsWith('info/exclude') ? { value: '# git ls-files --others --exclude-from=.git/info/exclude\n' } : { deny: 'missing' }))
   on('fs.write', ($: any, e: any) => { written[slash(e.path)] = e.text; return { value: undefined } })
@@ -281,12 +317,28 @@ test('New worktree: model names the branch, git adds it under .claude/worktrees 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' } as any)
   await ui.press({ key: 'new' })
   await ui.input({ key: 'new-task', text: 'Add OAuth login to the settings page' })
-  const args = gitArgs(calls)
-  expect(args).toContain('worktree add --relative-paths -b feat/oauth-login C:/work/app/.claude/worktrees/oauth-login main')
-  expect(written['C:/work/app/.git/info/exclude']).toBe('# git ls-files --others --exclude-from=.git/info/exclude\n/.claude/worktrees/\n')
+  return { ui, args: gitArgs(calls), written }
+}
+
+async function expectCreated(base: string, made: { ui: any; args: string[]; written: Record<string, string> }) {
+  const { ui, args, written } = made
+  expect(args).toContain('worktree add --relative-paths -b feat/oauth-login ' + base + '/app/.claude/worktrees/oauth-login main')
+  expect(written[base + '/app/.git/info/exclude']).toBe('# git ls-files --others --exclude-from=.git/info/exclude\n/.claude/worktrees/\n')
   expect(args).toContain('config wtmod.oauth-login.task Add OAuth login to the settings page')
   expect(await ui.find({ type: 'Text', text: /Created "oauth-login" on feat\/oauth-login from main/ })).toBeDefined()
   expect(await ui.find({ type: 'Button', key: 'notice-switch' } as any)).toBeUndefined() // list stub has no new tree
+}
+
+test('New worktree: model names the branch, git adds it under .claude/worktrees with relative paths, task is stored (Windows paths)', async ($, on) => {
+  const made = await createFromPanel($, on, 'C:/work', 'C:\\work\\app')
+  if (!pathsKept('C:/work')) return // not a Windows host: the POSIX twin covers it
+  await expectCreated('C:/work', made)
+})
+
+test('New worktree: model names the branch, git adds it under .claude/worktrees with relative paths, task is stored (POSIX paths)', async ($, on) => {
+  const made = await createFromPanel($, on, '/work', '/work/app')
+  if (!pathsKept('/work')) return // a host that rewrites /work paths: the Windows twin covers it
+  await expectCreated('/work', made)
 })
 
 test('Remove asks first, then removes the worktree, its config and its port', async ($, on) => {
@@ -340,8 +392,9 @@ test('if the session cwd is deleted, refresh falls back to known repo paths and 
           : { value: { exitCode: 0, stdout: LIST, stderr: '' } }
       },
     },
+    // The runtime can hand the stub C:\\work\\app or C:/work/app
+    exists: (path) => /C:[\\/]work[\\/]app/.test(path),
   })
-  on('fs.exists', ($: any, e: any) => ({ value: String(e.path).includes('C:/work/app') }))
   await $.command.run({ command: 'worktrees', args: '' })
   cwd = 'C:\\work\\app.worktrees\\gone'
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' } as any)
