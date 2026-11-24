@@ -87,6 +87,7 @@ const me = { id: '', model: '', effort: '', agent: '', isWorking: false } // thi
 let sessions = [] // the other live sessions of this repository: { sid, wt, model, effort, agent, isWorking, at }
 let presenceSig = ''
 let isIsolated = false // the session entered a worktree with EnterWorktree: Claude Code restricts its shell
+let options = {} // userConfig values, defaults filled in
 
 // ---------- pure helpers (exported for tests) ----------
 
@@ -765,15 +766,17 @@ async function createTree($, task, base) {
   idCache.set(path, id)
   await setMeta($, id, 'name', slug)
   await setMeta($, id, 'task', text)
-  const copied = await copyEnvFiles($, path)
+  // .env files hold secrets: copied only with copyEnvFiles on, or when the
+  // user presses the button that names them. Until then only their names
+  // (from git) are known; no file is read
+  const envNames = await listEnvFiles($)
+  const copied = envNames.length && options.copyEnvFiles === true ? await copyEnvFiles($, path, envNames) : []
   form = null
-  setNotice(
-    $,
-    'ok',
-    'Created "' + slug + '" on ' + branch + ' from ' + from + '.' + (copied.length ? '\nCopied ' + copied.join(', ') + ' from the main worktree.' : '') +
-      '\nInstall its dependencies before starting a dev server.',
-    path,
-  )
+  let envLine = ''
+  if (copied.length) envLine = '\nCopied ' + copied.join(', ') + ' from the main worktree.'
+  else if (envNames.length) envLine = '\nNot copied: ' + envNames.join(', ') + ' (ignored .env files of the main worktree). Copy them here only if this worktree needs them.'
+  setNotice($, 'ok', 'Created "' + slug + '" on ' + branch + ' from ' + from + '.' + envLine + '\nInstall its dependencies before starting a dev server.', path)
+  if (envNames.length && !copied.length) notice.envFiles = envNames
 }
 
 // Keeps the nested worktrees out of the main worktree's `git status`, without
@@ -796,11 +799,18 @@ async function excludeWorktreeHome($) {
   }
 }
 
-async function copyEnvFiles($, dest) {
+// The names of the ignored .env files at the main worktree's root, from git:
+// nothing is read
+async function listEnvFiles($) {
   const r = await gitMain($, ['ls-files', '--others', '--ignored', '--exclude-standard', '-z', '--', '.env*'])
-  const names = r.out.split('\0').filter((n) => n && !n.includes('/') && ENV_FILE.test(n))
+  return r.out.split('\0').filter((n) => n && !n.includes('/') && ENV_FILE.test(n))
+}
+
+// Copies the named .env files from the main worktree into `dest`. Runs only with
+// copyEnvFiles on, or from the Copy button that names the files
+async function copyEnvFiles($, dest, names) {
   const copied = []
-  for (const n of names) {
+  for (const n of names.filter((x) => !x.includes('/') && ENV_FILE.test(x))) {
     try {
       const text = await $.fs.read(repo.mainRoot + '/' + n)
       await $.fs.write(dest + '/' + n, String(text))
@@ -810,6 +820,12 @@ async function copyEnvFiles($, dest) {
     }
   }
   return copied
+}
+
+// The notice's Copy button: the user asked for these files in this worktree
+async function copyEnvInto($, dest, names) {
+  const copied = await copyEnvFiles($, dest, names)
+  setNotice($, copied.length ? 'ok' : 'error', copied.length ? 'Copied ' + copied.join(', ') + ' into "' + baseName(dest) + '".' : 'Could not copy ' + names.join(', ') + '.', dest)
 }
 
 async function hasCd($) {
@@ -1062,7 +1078,8 @@ function shortPath(p) {
   return home && n.startsWith(home + '/') ? String(p).replace(/\\/g, '/').slice(home.length + 1) : p
 }
 
-export function register(on) {
+export function register(on, opts) {
+  options = opts ?? {}
   on('session.start', async ($, e, next) => {
     try {
       await $.command.register({ name: 'worktrees', description: 'Open the worktrees panel (switch, create, ports, tasks)', immediate: true })
@@ -1318,6 +1335,8 @@ export function register(on) {
       const color = notice.tone === 'ok' ? 'green' : notice.tone === 'error' ? 'red' : 'blue'
       const mark = notice.tone === 'ok' ? '✓ ' : notice.tone === 'error' ? '✕ ' : '● '
       const target = notice.path ? findTree(notice.path) : null
+      const envFiles = notice.envFiles ?? []
+      const envDest = notice.path
       out.push(
         Box({
           flexDirection: 'column',
@@ -1332,6 +1351,15 @@ export function register(on) {
               flexWrap: 'wrap',
               columnGap: 1,
               children: [
+                ...(envFiles.length && envDest
+                  ? [
+                      Button({
+                        key: 'notice-copy-env',
+                        label: 'Copy ' + envFiles.join(', '),
+                        onPress: () => runAction($, 'Copying .env files', () => copyEnvInto($, envDest, envFiles)),
+                      }),
+                    ]
+                  : []),
                 ...(target
                   ? [
                       Button({ key: 'notice-switch', label: 'Switch session here', onPress: () => runAction($, 'Switching', () => switchTo($, target)) }),

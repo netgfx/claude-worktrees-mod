@@ -6,5 +6,13 @@
   "homepage": "https://github.com/netgfx/claude-worktrees-mod",
   "repository": "https://github.com/netgfx/claude-worktrees-mod",
   "license": "MIT",
-  "keywords": ["git", "worktree", "worktrees", "panel", "ports", "parallel", "mod"]
+  "keywords": ["git", "worktree", "worktrees", "panel", "ports", "parallel", "mod"],
+  "userConfig": {
+    "copyEnvFiles": {
+      "type": "boolean",
+      "title": "Copy .env files into new worktrees",
+      "description": "Copy the main worktree's git-ignored .env files (they often hold secrets) into each worktree the panel creates. Off: nothing is read, and the panel offers a Copy button that names the files",
+      "default": false
+    }
+  }
 }

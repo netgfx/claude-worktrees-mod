@@ -341,6 +341,57 @@ test('New worktree: model names the branch, git adds it under .claude/worktrees 
   await expectCreated('/work', made)
 })
 
+// ---------- .env files in new worktrees ----------
+
+// Creates a worktree in a repository whose main worktree has ignored .env files,
+// and records every file read and written (by path, with forward slashes)
+async function createWithEnv($: any, on: any) {
+  const calls: any[] = []
+  const reads: string[] = []
+  const written: Record<string, string> = {}
+  const slash = (p: string) => String(p).replace(/\\/g, '/')
+  stubs(on, calls, {
+    overrides: {
+      'ls-files': (args: string[]) => ({ value: { exitCode: 0, stdout: args.includes('.env*') ? '.env\0.env.local\0' : '', stderr: '' } }),
+    },
+  })
+  on('fs.read', ($: any, e: any) => {
+    reads.push(slash(e.path))
+    if (slash(e.path).endsWith('info/exclude')) return { value: '' }
+    if (/\/\.env(\.local)?$/.test(slash(e.path))) return { value: 'SECRET=1\n' }
+    return { deny: 'missing' }
+  })
+  on('fs.write', ($: any, e: any) => { written[slash(e.path)] = e.text; return { value: undefined } })
+  on('model.complete', () => ({ value: { isAnswered: true, text: 'feat/oauth-login', usage: USAGE } }))
+  await $.command.run({ command: 'worktrees', args: '' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' } as any)
+  await ui.press({ key: 'new' })
+  await ui.input({ key: 'new-task', text: 'Add OAuth login to the settings page' })
+  const envReads = () => reads.filter((p) => /\/\.env(\.local)?$/.test(p))
+  const envWrites = () => Object.keys(written).filter((p) => /oauth-login\/\.env(\.local)?$/.test(p))
+  return { ui, envReads, envWrites }
+}
+
+test('.env files are not read or copied by default; the notice names them and offers a Copy button', async ($, on) => {
+  const { ui, envReads, envWrites } = await createWithEnv($, on)
+  expect(envReads()).toEqual([])
+  expect(envWrites()).toEqual([])
+  expect(await ui.find({ type: 'Text', text: /Not copied: \.env, \.env\.local/ })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'notice-copy-env', label: 'Copy .env, .env.local' } as any)).toBeDefined()
+
+  await ui.press({ key: 'notice-copy-env' })
+  expect(envReads().length).toBe(2)
+  expect(envWrites().length).toBe(2)
+  expect(await ui.find({ type: 'Text', text: /Copied \.env, \.env\.local into "oauth-login"/ })).toBeDefined()
+})
+
+test('with copyEnvFiles on, .env files are copied when the worktree is created', { options: { copyEnvFiles: true } }, async ($, on) => {
+  const { ui, envWrites } = await createWithEnv($, on)
+  expect(envWrites().length).toBe(2)
+  expect(await ui.find({ type: 'Text', text: /Copied \.env, \.env\.local from the main worktree/ })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'notice-copy-env' } as any)).toBeUndefined()
+})
+
 test('Remove asks first, then removes the worktree, its config and its port', async ($, on) => {
   const calls: any[] = []
   stubs(on, calls, { store: { 'port:4110': { root: 'c:/work/app', id: 'auth', path: 'C:/work/app.worktrees/auth', name: 'auth', repo: 'app' } } })
