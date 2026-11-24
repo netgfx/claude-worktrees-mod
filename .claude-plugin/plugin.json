@@ -13,6 +13,12 @@
       "title": "Copy .env files into new worktrees",
       "description": "Copy the main worktree's git-ignored .env files (they often hold secrets) into each worktree the panel creates. Off: nothing is read, and the panel offers a Copy button that names the files",
       "default": false
+    },
+    "injectContext": {
+      "type": "boolean",
+      "title": "Tell Claude about the worktrees",
+      "description": "Add a section to Claude's system prompt naming this session's worktree, its task, the other worktrees and the dev-server ports (the README quotes it). Off: the system prompt is left as it is",
+      "default": true
     }
   }
 }

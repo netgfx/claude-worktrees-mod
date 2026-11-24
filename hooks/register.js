@@ -1122,10 +1122,11 @@ export function register(on, opts) {
     return next(e)
   }).catch(($, e, next) => next(e)) // fail open: worktree bookkeeping never blocks Claude
 
-  // The session's worktree, its task, the others and the ports, for the model
+  // The session's worktree, its task, the others and the ports, for the model.
+  // userConfig injectContext: false leaves the system prompt alone
   on('prompt.compose', async ($, e, next) => {
     const composed = await next(e)
-    if (!promptText) return composed
+    if (!promptText || options.injectContext === false) return composed
     return { ...composed, sections: [...composed.sections.filter((s) => s.id !== PROMPT_ID), { id: PROMPT_ID, text: promptText, scope: 'session' }] }
   })
 

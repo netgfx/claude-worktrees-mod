@@ -222,6 +222,17 @@ test('prompt.compose adds the worktree section', async ($, on) => {
   expect(section.text).toMatch(/PORT=4110/)
 })
 
+test('injectContext: false keeps the worktree section out of the system prompt', { options: { injectContext: false } }, async ($, on) => {
+  const calls: any[] = []
+  stubs(on, calls, { cwd: 'C:\\work\\app.worktrees\\auth' })
+  on('prompt.compose', () => ({ sections: [{ id: 'intro', text: 'hi', scope: 'shared' }] }))
+  await $.command.run({ command: 'worktrees', args: '' })
+  const r: any = await $.prompt.compose({ model: 'm', promptModel: 'm', surfaces: [], tools: [], outputStyle: null, traits: [] } as any)
+  expect(r.sections.map((s: any) => s.id)).toEqual(['intro'])
+  // The session still gets its PORT: only the prompt section is off
+  expect(await $.ui.mount({ ...PANE, surface: 'terminal' } as any).then((ui: any) => ui.find({ type: 'Text', text: '◆ this session' }))).toBeDefined()
+})
+
 // ---------- the port guard ----------
 
 for (const tool of ['Bash', 'PowerShell']) {
