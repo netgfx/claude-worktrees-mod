@@ -1,2 +1,5 @@
 node_modules/
 .claude-plugin/types/
+
+# Tooling that drew the README mockups; kept out of the plugin folder
+docs/*.py
