@@ -1,4 +1,4 @@
-// worktrees-manager-mod: a /worktrees side panel for every worktree of the
+// powermods-worktrees: a /worktrees side panel for every worktree of the
 // repository the session runs in. Each worktree gets a name, a color, a
 // one-sentence task and a block of dev-server ports, kept in the repository's
 // own git config (`wtmod.<id>.*`) so every terminal and session sees the same.
@@ -19,7 +19,7 @@ const PORT_BLOCK = 10 // ports per worktree: PORT, then PORT+1..PORT+9 for extra
 const PORT_LIMIT = 9999
 const STORE_PORT = 'port:' // $.store key prefix: machine-wide port block registry
 const STORE_GUARD = 'guard' // $.store key: port guard on/off
-const PROMPT_ID = 'worktrees-manager-mod:worktree'
+const PROMPT_ID = 'powermods-worktrees:worktree'
 const SHELL_TOOLS = ['Bash', 'PowerShell']
 const SWITCH_TOOLS = ['EnterWorktree', 'ExitWorktree']
 const ENV_FILE = /^\.env(\..+)?$/
@@ -477,7 +477,7 @@ async function loadRegistry($) {
       if (v && typeof v === 'object') list.push({ ...v, port: Number(key.slice(STORE_PORT.length)) })
     }
   } catch (err) {
-    $.ui.log('worktrees-manager-mod: could not read the port registry: ' + (err?.message ?? err), { to: 'debug' })
+    $.ui.log('powermods-worktrees: could not read the port registry: ' + (err?.message ?? err), { to: 'debug' })
   }
   registry = list
 }
@@ -487,7 +487,7 @@ async function claimPort($, tree, port) {
   try {
     await $.store.set(STORE_PORT + port, entry)
   } catch (err) {
-    $.ui.log('worktrees-manager-mod: could not record port ' + port + ': ' + (err?.message ?? err), { to: 'debug' })
+    $.ui.log('powermods-worktrees: could not record port ' + port + ': ' + (err?.message ?? err), { to: 'debug' })
   }
   registry = [...registry.filter((r) => r.port !== port), { ...entry, port }]
 }
@@ -795,7 +795,7 @@ async function excludeWorktreeHome($) {
   try {
     await $.fs.write(file, text + (text && !text.endsWith('\n') ? '\n' : '') + '/' + WORKTREE_HOME + '/\n')
   } catch (err) {
-    $.ui.log('worktrees-manager-mod: could not update ' + file + ': ' + (err?.message ?? err), { to: 'debug' })
+    $.ui.log('powermods-worktrees: could not update ' + file + ': ' + (err?.message ?? err), { to: 'debug' })
   }
 }
 
@@ -816,7 +816,7 @@ async function copyEnvFiles($, dest, names) {
       await $.fs.write(dest + '/' + n, String(text))
       copied.push(n)
     } catch (err) {
-      $.ui.log('worktrees-manager-mod: could not copy ' + n + ': ' + (err?.message ?? err), { to: 'debug' })
+      $.ui.log('powermods-worktrees: could not copy ' + n + ': ' + (err?.message ?? err), { to: 'debug' })
     }
   }
   return copied
@@ -864,7 +864,7 @@ async function switchTo($, tree) {
       setNotice($, 'info', 'The session stayed where it was (the move was declined).')
       return
     }
-    $.ui.log('worktrees-manager-mod: /cd failed, trying EnterWorktree: ' + error, { to: 'debug' })
+    $.ui.log('powermods-worktrees: /cd failed, trying EnterWorktree: ' + error, { to: 'debug' })
   }
   let r = await $.tool.call({ tool: 'EnterWorktree', path: nativePath(tree.path) }).catch((err) => ({ deny: String(err?.message ?? err) }))
   if ((r.deny || r.isError) && tree.isMain) {
@@ -1014,7 +1014,7 @@ async function initPresence($) {
     me.id = await $.session.id()
     me.model = await $.session.model()
   } catch (err) {
-    $.ui.log('worktrees-manager-mod: no session id or model: ' + (err?.message ?? err), { to: 'debug' })
+    $.ui.log('powermods-worktrees: no session id or model: ' + (err?.message ?? err), { to: 'debug' })
   }
   // The agent the session runs as (--agent), from the session itself; no
   // settings are read. Before v2.1.326 the first Stop names it instead, and
@@ -1038,7 +1038,7 @@ async function publishPresence($, isHeartbeat) {
   try {
     await $.store.set(STORE_SESSION + me.id, { ...entry, at: await $.clock.now() })
   } catch (err) {
-    $.ui.log('worktrees-manager-mod: could not publish this session: ' + (err?.message ?? err), { to: 'debug' })
+    $.ui.log('powermods-worktrees: could not publish this session: ' + (err?.message ?? err), { to: 'debug' })
   }
 }
 
@@ -1059,7 +1059,7 @@ async function loadSessions($) {
     }
     sessions = liveSessions(entries, norm(repo.mainRoot), now, me.id)
   } catch (err) {
-    $.ui.log('worktrees-manager-mod: could not read the other sessions: ' + (err?.message ?? err), { to: 'debug' })
+    $.ui.log('powermods-worktrees: could not read the other sessions: ' + (err?.message ?? err), { to: 'debug' })
   }
 }
 
@@ -1086,7 +1086,7 @@ export function register(on, opts) {
     try {
       await $.command.register({ name: 'worktrees', description: 'Open the worktrees panel (switch, create, ports, tasks)', immediate: true })
     } catch (err) {
-      $.ui.log('worktrees-manager-mod: could not register /worktrees: ' + err.message, { to: 'debug' })
+      $.ui.log('powermods-worktrees: could not register /worktrees: ' + err.message, { to: 'debug' })
     }
     await loadGuard($)
     $.clock.every(POLL_MS, () => {
@@ -1106,7 +1106,7 @@ export function register(on, opts) {
         await $.ui.open({ id: PANE, title: 'Worktrees', columns: 60 })
       }
     } catch (err) {
-      $.ui.log('worktrees-manager-mod: start failed: ' + (err?.message ?? err), { to: 'debug' })
+      $.ui.log('powermods-worktrees: start failed: ' + (err?.message ?? err), { to: 'debug' })
     }
     return next(e)
   })
@@ -1141,7 +1141,7 @@ export function register(on, opts) {
       suggestTask($, tree, text)
         .then(() => applySession($))
         .then(() => $.ui.invalidate('ui.render'))
-        .catch((err) => $.ui.log('worktrees-manager-mod: no task summary: ' + (err?.message ?? err), { to: 'debug' }))
+        .catch((err) => $.ui.log('powermods-worktrees: no task summary: ' + (err?.message ?? err), { to: 'debug' }))
     }
     return next(e)
   }).catch(($, e, next) => next(e)) // fail open: worktree bookkeeping never blocks Claude

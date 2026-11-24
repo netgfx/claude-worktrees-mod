@@ -18,7 +18,7 @@ import {
 } from '../hooks/register.js'
 
 const PANE = {
-  plugin: 'worktrees-manager-mod',
+  plugin: 'powermods-worktrees',
   component: 'Pane',
   requestId: 'worktrees',
   viewport: { columns: 160, rows: 50 },
@@ -222,7 +222,7 @@ test('prompt.compose adds the worktree section', async ($, on) => {
   on('prompt.compose', () => ({ sections: [{ id: 'intro', text: 'hi', scope: 'shared' }] }))
   await $.command.run({ command: 'worktrees', args: '' })
   const r: any = await $.prompt.compose({ model: 'm', promptModel: 'm', surfaces: [], tools: [], outputStyle: null, traits: [] } as any)
-  const section = r.sections.find((s: any) => s.id === 'worktrees-manager-mod:worktree')
+  const section = r.sections.find((s: any) => s.id === 'powermods-worktrees:worktree')
   expect(section.scope).toBe('session')
   expect(section.text).toMatch(/PORT=4110/)
 })

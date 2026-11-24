@@ -1,22 +1,25 @@
 {
   "name": "claude-worktrees-mod",
-  "owner": { "name": "djmid", "email": "djmid71@gmail.com" },
+  "owner": { "name": "Michael Dobekidis", "email": "djmid71@gmail.com", "url": "https://github.com/netgfx" },
   "metadata": {
-    "description": "worktrees-manager-mod: a git worktrees manager for Claude Code",
-    "version": "0.2.1"
+    "description": "Worktrees Manager (powermods-worktrees): a git worktrees manager for Claude Code",
+    "version": "0.3.0"
   },
   "plugins": [
     {
-      "name": "worktrees-manager-mod",
+      "name": "powermods-worktrees",
       "source": "./",
       "description": "A /worktrees side panel: colored, named worktrees with one-line tasks, fast session switching, and per-worktree dev-server ports Claude respects",
-      "version": "0.2.1",
-      "author": { "name": "djmid", "email": "djmid71@gmail.com" },
+      "version": "0.3.0",
+      "author": { "name": "Michael Dobekidis", "email": "djmid71@gmail.com", "url": "https://github.com/netgfx" },
       "homepage": "https://github.com/netgfx/claude-worktrees-mod",
       "repository": "https://github.com/netgfx/claude-worktrees-mod",
       "license": "MIT",
       "keywords": ["git", "worktree", "worktrees", "panel", "ports", "parallel", "mod"],
       "category": "productivity"
     }
-  ]
+  ],
+  "renames": {
+    "worktrees-manager-mod": "powermods-worktrees"
+  }
 }
