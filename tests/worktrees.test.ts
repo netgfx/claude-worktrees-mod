@@ -536,7 +536,7 @@ test('the default claude agent and ended sessions show nothing', async ($, on) =
   expect(await ui.find({ type: 'Text', text: 'haiku 5.5' })).toBeUndefined()
 })
 
-test('a session publishes its worktree, model and agent, and working while a turn runs', async ($, on) => {
+test('a session publishes its worktree, model, agent and effort, and working while a turn runs', async ($, on) => {
   const calls: any[] = []
   const saved = new Map<string, any>()
   on('process.run', fakeHost(calls))
@@ -548,7 +548,11 @@ test('a session publishes its worktree, model and agent, and working while a tur
   mock.clock(on, { now: 5000 })
   on('session.id', () => ({ value: 'me1' }))
   on('session.model', () => ({ value: 'claude-sonnet-5-5' }))
-  on('settings.read', () => ({ value: { agent: 'code-reviewer', effortLevel: 'medium' } }))
+  // The agent comes from the session; no settings are read
+  on('session.info', () => ({ value: { transcriptPath: '', agentType: 'code-reviewer' } }))
+  on('settings.read', () => {
+    throw new Error('the mod must not read settings')
+  })
   on('env.set', () => ({ value: undefined }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('ui.status', () => ({ value: undefined }))
@@ -557,11 +561,19 @@ test('a session publishes its worktree, model and agent, and working while a tur
   on('command.register', () => ({ value: undefined }))
   on('session.start', () => ({ cwd: 'C:\\work\\app.worktrees\\auth' }))
   on('turn.start', ($: any, e: any) => ({ turnId: e.turnId }))
+  on('turn.step', async function* ($: any, e: any) {
+    return { turnId: e.turnId, index: e.index, answer: 'ok', toolUses: [], stopReason: 'end_turn', usage: USAGE }
+  })
   on('session.end', ($: any, e: any) => ({ sessionId: e.sessionId }))
   await $.session.start({ surface: 'terminal', isInteractive: true, cwd: 'C:\\work\\app.worktrees\\auth' } as any)
-  expect(saved.get('session:me1')).toMatchObject({ sid: 'me1', root: ROOT, wt: 'auth', model: 'claude-sonnet-5-5', effort: 'medium', agent: 'code-reviewer', isWorking: false, at: 5000 })
+  expect(saved.get('session:me1')).toMatchObject({ sid: 'me1', root: ROOT, wt: 'auth', model: 'claude-sonnet-5-5', effort: '', agent: 'code-reviewer', isWorking: false, at: 5000 })
   await $.turn.start({ text: 'hi', turnId: 't1' } as any)
   expect(saved.get('session:me1').isWorking).toBe(true)
+  // The first model request names the effort the session runs at
+  const stream = $.turn.step({ turnId: 't1', index: 0, model: 'claude-sonnet-5-5', effort: 'medium', messageCount: 1 } as any)
+  let step = await stream.next()
+  while (step.done !== true) step = await stream.next()
+  expect(saved.get('session:me1')).toMatchObject({ model: 'claude-sonnet-5-5', effort: 'medium' })
   await $.session.end({ reason: 'other', sessionId: 'me1' } as any)
   expect(saved.has('session:me1')).toBe(false)
 })

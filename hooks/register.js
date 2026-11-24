@@ -1016,12 +1016,14 @@ async function initPresence($) {
   } catch (err) {
     $.ui.log('worktrees-manager-mod: no session id or model: ' + (err?.message ?? err), { to: 'debug' })
   }
+  // The agent the session runs as (--agent), from the session itself; no
+  // settings are read. Before v2.1.326 the first Stop names it instead, and
+  // the effort always comes from the first model request (turn.step)
   try {
-    const settings = await $.settings.read()
-    if (!me.agent && typeof settings?.agent === 'string') me.agent = settings.agent
-    if (!me.effort && typeof settings?.effortLevel === 'string') me.effort = settings.effortLevel
+    const info = await $.session.info()
+    if (!me.agent && typeof info?.agentType === 'string') me.agent = info.agentType
   } catch {
-    // the first turn's step names the effort
+    // the first Stop names the agent
   }
   presenceSig = ''
 }
