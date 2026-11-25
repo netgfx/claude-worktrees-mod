@@ -995,6 +995,24 @@ async function loadGuard($) {
   }
 }
 
+// The port guard's answer for one shell command: the reason Claude reads when
+// it is refused, or null to let it run. A command that touches worktrees
+// (git worktree ...) also redraws the panel once it has had time to run
+async function guardRefusal($, cmd) {
+  if (/\bworktree\b/.test(cmd) && !busy) $.clock.after(1500, () => refresh($).catch(() => {}))
+  if (!guardOn || !current?.meta.port) return null
+  const script = await readScript($, cmd)
+  const others = [
+    ...trees.filter((t) => t !== current && t.meta.port).map((t) => ({ name: t.meta.name, port: t.meta.port, path: t.path })),
+    ...registry.filter((r) => r.root !== norm(repo.mainRoot)).map((r) => ({ name: r.name + ' in ' + r.repo, port: r.port, path: r.path })),
+  ]
+  const reason = checkDevCommand(cmd, { name: current.meta.name, port: current.meta.port }, others, script)
+  if (!reason) return null
+  // Tell the user too, not only Claude: they can turn the guard off
+  $.ui.toast('Port guard refused a dev-server command (' + cleanSentence(cmd, 50) + '). Turn it off with g in /worktrees.')
+  return reason + ' (If the user asked for that exact port, ask them to turn off the port guard in /worktrees.)'
+}
+
 async function readScript($, cmd) {
   const name = scriptName(cmd)
   if (!name || !current) return undefined
@@ -1147,25 +1165,20 @@ export function register(on, opts) {
   }).catch(($, e, next) => next(e)) // fail open: worktree bookkeeping never blocks Claude
 
   // Port guard: a dev server on another worktree's port, or on a default port, is refused
+  // Written plainly so the directory can read its two answers: a literal
+  // { deny } for a refused dev-server command, else `return next(e)`, which
+  // leaves the call to Claude Code's own permission check. A failure while
+  // checking is caught inside, and the command runs as if the guard were off.
   on('tool.call', { tool: SHELL_TOOLS }, async ($, e, next) => {
-    if (guardOn && current?.meta.port) {
-      const cmd = String(e.command ?? '')
-      const script = await readScript($, cmd)
-      const others = [
-        ...trees.filter((t) => t !== current && t.meta.port).map((t) => ({ name: t.meta.name, port: t.meta.port, path: t.path })),
-        ...registry.filter((r) => r.root !== norm(repo.mainRoot)).map((r) => ({ name: r.name + ' in ' + r.repo, port: r.port, path: r.path })),
-      ]
-      const deny = checkDevCommand(cmd, { name: current.meta.name, port: current.meta.port }, others, script)
-      if (deny) {
-        // Tell the user too, not only Claude: they can turn the guard off
-        $.ui.toast('Port guard refused a dev-server command (' + cleanSentence(cmd, 50) + '). Turn it off with g in /worktrees.')
-        return { deny: deny + ' (If the user asked for that exact port, ask them to turn off the port guard in /worktrees.)' }
-      }
+    let refusal = null
+    try {
+      refusal = await guardRefusal($, String(e.command ?? ''))
+    } catch {
+      refusal = null
     }
-    const result = await next(e)
-    if (/\bworktree\b/.test(String(e.command ?? '')) && !busy) refresh($).catch(() => {})
-    return result
-  }).catch(($, e, next) => next(e)) // fail open: worktree bookkeeping never blocks Claude
+    if (refusal) return { deny: refusal }
+    return next(e)
+  })
 
   on('tool.call', { tool: SWITCH_TOOLS }, async ($, e, next) => {
     const result = await next(e)
@@ -1175,14 +1188,16 @@ export function register(on, opts) {
     return result
   }).catch(($, e, next) => next(e)) // fail open: worktree bookkeeping never blocks Claude
 
-  // /cd, typed or from Switch, moves the session out of any isolation
+  // /cd, typed or from Switch, moves the session out of any isolation. The hook
+  // only notes that and passes the command on unchanged (`return next(e)`);
+  // the new folder is read when the cwd changes (classic.CwdChanged), and a
+  // refresh a moment later redraws the prompt section either way
   on('command.run', { command: 'cd' }, async ($, e, next) => {
-    const result = await next(e)
     isIsolated = false
     lastSig = ''
-    await refresh($).catch(() => {})
-    return result
-  }).catch(($, e, next) => next(e)) // fail open: worktree bookkeeping never blocks Claude
+    $.clock.after(1000, () => refresh($).catch(() => {}))
+    return next(e)
+  })
 
   on('classic.CwdChanged', async ($, e, next) => {
     refresh($).catch(() => {})
