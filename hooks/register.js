@@ -600,7 +600,8 @@ async function applySession($) {
   if (sig !== envSig) {
     await $.env.set('PORT', String(m.port))
     await $.env.set('WORKTREE_PORT', String(m.port))
-    await $.env.set('WORKTREE_NAME', m.name)
+    // At most 60 characters (240 bytes of UTF-8), one line: the name as the panel shows it
+    await $.env.set('WORKTREE_NAME', [...m.name].slice(0, 60).join(''))
     envSig = sig
   }
   promptText = buildPrompt(current, trees, { isIsolated })
