@@ -79,6 +79,41 @@ Each card has **Switch**, **Terminal**, **Editor** (VS Code), **Copy cd**, **Edi
 
 Everything runs on your machine. The mod reaches no host of its own (`network.hosts` is empty); the only thing that leaves the machine is the model requests listed under [Model use](#model-use), which go through Claude Code to Anthropic on your own plan or API key.
 
+### At a glance
+
+- **Programs it runs:** each one by name, with its arguments as a list (no shell), to read and manage the worktrees and to open a terminal or editor when you press a button. Only paths, branch names, worktree names, ports and the `wtmod.*` values vary; it never runs text from the network, a model or the conversation as a command.
+  - `git`, always as `git -c core.quotepath=false -c color.ui=false <subcommand>`: `worktree list`, `status`, `log`, `diff --stat`, `config` (the `wtmod.*` keys only), `rev-parse`, `symbolic-ref`, `ls-files`, `--version`, and, from panel buttons only, `worktree add`, `worktree remove` and `worktree prune`. No git command reaches a remote.
+  - Listening ports: `netstat -ano -p TCP` and `netstat -ano -p TCPv6` (Windows), `lsof -nP -iTCP -sTCP:LISTEN` or `ss -ltnH` (macOS, Linux); `uname -s` once to tell macOS from Linux.
+  - **Terminal** button: `wt -w 0 nt -d <worktree> --title <name> --tabColor <color> cmd /k claude`, else `cmd /d /c start <name> /D <worktree> cmd /k claude` (Windows), or `osascript` telling Terminal to `cd` into the worktree and run `claude` (macOS). These start `claude` in a new window, the one command they run.
+  - **Editor** button: `code <worktree>` (`cmd /d /c code <worktree>` on Windows).
+- **What it sends and where:** to Claude Haiku, through Claude Code (`$.model.complete`), on your plan: a new worktree's one-sentence task; the first 4,000 characters of the first prompt sent in a worktree that has no task, with its branch, last 8 commit subjects and `git diff HEAD --stat`; and the same without a prompt when you press **Suggest**. What comes back stays local: the branch name it suggests goes into `git worktree add -b <branch>`, and the task summary into `git config wtmod.<id>.task`. Its `$.store` entries (port blocks, sessions, the guard switch) stay on the machine. Nothing else leaves it.
+- **Hosts it contacts:** none of its own. The model requests above go to Anthropic through Claude Code.
+- **Tools it calls itself:** `EnterWorktree`, or `ExitWorktree` to go back to the main worktree, only when you press **Switch** on a Claude Code build without `/cd`. They go through Claude Code's permission check.
+- **Slash commands it runs:** `/cd <worktree path>`, only when you press **Switch**. Claude Code may ask you to trust the folder first.
+- **Permission decisions:** the port guard (a `tool.call` hook on `Bash` and `PowerShell`, on by default, `g` in `/worktrees` turns it off) refuses a command that would start a dev server on another worktree's port, a default port, or with no port for a server that ignores `PORT`. It answers only with `deny`; every other command goes on unchanged to Claude Code's own permission check, and the guard never allows anything. The `command.run` hook on `/cd` decides nothing and passes the command on unchanged. Details: [The port guard](#the-port-guard).
+- **Files it writes:**
+  - `<repo>/.git/info/exclude`: git's local ignore list, a settings file. The mod edits it on purpose, appending `/.claude/worktrees/` once so the main worktree doesn't list the new worktrees as untracked.
+  - `<repo>/.git/config`, through `git config`: the `wtmod.<worktree id>.name`, `.color`, `.task` and `.port` keys, git settings the mod owns.
+  - `.env*` copies in a new worktree, only with `copyEnvFiles` on or when you press the Copy button that names them. These are settings files your apps read at start-up; see [.env files](#env-files).
+  - Worktree folders under `<repo>/.claude/worktrees/`, made and removed by `git worktree add` and `git worktree remove` from the panel.
+  - It writes no build, start-up script or instructions file.
+- **Environment variables / config it sets:** `PORT` and `WORKTREE_PORT` (the first port of the worktree's block) and `WORKTREE_NAME` (the worktree's name, at most 60 characters), with `$.env.set`, while the session works in a worktree that has a port block; it unsets them when it doesn't. They reach every command and MCP server Claude Code starts afterwards. Git config: the `wtmod.*` keys above.
+- **What it puts in prompts:** it submits no prompts. It adds one section to Claude's system prompt, quoted under [What it adds to Claude's system prompt](#what-it-adds-to-claudes-system-prompt); `injectContext: false` turns it off.
+- **What it gives the agents it starts:** it starts no agents.
+- **Calls from other plugins:** none. Every call it makes is Claude Code's own mods API (`$.session.info` needs Claude Code v2.1.326 or later; on older versions the call fails and the mod reads the agent's name from the first `Stop` instead).
+- **Hooks:**
+  - `session.start`: registers `/worktrees`, reads the worktrees, opens the panel when there is more than one. Changes nothing.
+  - `command.run` for `/worktrees`: opens the panel. It answers only its own command.
+  - `command.run` for `/cd`: notes that the session leaves any `EnterWorktree` isolation, then passes the command on unchanged.
+  - `tool.call` on `Bash` and `PowerShell`: the port guard above. Never changes a command's input.
+  - `tool.call` on `EnterWorktree` and `ExitWorktree`: notes whether the session is isolated. Passes the call and its result on unchanged.
+  - `prompt.compose`: adds the worktree section to the system prompt (unless `injectContext` is off).
+  - `prompt.submit`: reads the first prompt in a worktree without a task, for the summary above. Never changes, adds to or drops a prompt.
+  - `classic.CwdChanged`, `classic.SessionStart` (after `/clear`, `/resume`, a fork), `classic.Stop`: re-read the worktrees when the folder changes, start presence over under the new session id, and read the agent name and effort. Change nothing.
+  - `turn.start`, `turn.step`, `turn.complete`, `session.end`: working or waiting, each request's model and effort, and dropping this session's presence entry at the end. Change nothing.
+  - `ui.close`, `ui.render` for its own panel only.
+
+The sections below give the details.
 ### .env files
 
 `.env` files often hold API keys and passwords, so new worktrees don't get them by default.
@@ -122,7 +157,7 @@ This session entered the worktree with EnterWorktree, so Claude Code refuses any
 
 ### Environment changes
 
-- `$.env.set` sets `PORT`, `WORKTREE_PORT` (both the first port of the worktree's block) and `WORKTREE_NAME` (the worktree's name) while the session works in a worktree with a port block, and clears them when it doesn't. They apply to **every command and MCP server Claude Code starts afterwards** in this session.
+- `$.env.set` sets `PORT`, `WORKTREE_PORT` (both the first port of the worktree's block) and `WORKTREE_NAME` (the worktree's name, cut to 60 characters) while the session works in a worktree with a port block, and clears them when it doesn't. They apply to **every command and MCP server Claude Code starts afterwards** in this session.
 
 ### Model use
 
